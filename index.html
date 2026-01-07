@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MT5 外汇止盈/止损/手数计算器（实时现价=入场价）</title>
+  <style>
+    :root { --bg:#0b1220; --card:#111b2e; --txt:#e8eefc; --mut:#9bb0d3; --bd:#223455; --ok:#3ddc97; --bad:#ff6b6b; }
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans SC","PingFang SC";
+      background:linear-gradient(180deg,#070b14,#0b1220 40%,#070b14);color:var(--txt);}
+    .wrap{max-width:980px;margin:24px auto;padding:0 14px;}
+    h1{font-size:18px;margin:0 0 10px 0;color:#fff;}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px;}
+    @media (min-width:900px){.grid{grid-template-columns:1.1fr .9fr;}}
+    .card{background:rgba(17,27,46,.92);border:1px solid var(--bd);border-radius:14px;padding:14px;box-shadow:0 10px 30px rgba(0,0,0,.25);}
+    .row{display:grid;grid-template-columns:1fr;gap:10px;margin-top:10px;}
+    @media (min-width:680px){.row{grid-template-columns:1fr 1fr;}}
+    label{display:block;font-size:12px;color:var(--mut);margin:0 0 6px 2px;}
+    input,select,button{width:100%;padding:10px 11px;border-radius:10px;border:1px solid var(--bd);background:#0b1527;color:var(--txt);outline:none;}
+    input:focus,select:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.18);}
+    .inline{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+    .pill{display:inline-flex;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--bd);border-radius:999px;background:#0b1527;}
+    .pill b{color:#fff;}
+    .btn{cursor:pointer;background:#13325f;border-color:#1f3d6b;width:auto;white-space:nowrap;}
+    .btn:hover{filter:brightness(1.05);}
+    .hr{height:1px;background:var(--bd);margin:12px 0;}
+    .small{font-size:11px;color:var(--mut);}
+    .kpi{display:grid;grid-template-columns:1fr;gap:10px;margin-top:10px;}
+    @media (min-width:680px){.kpi{grid-template-columns:1fr 1fr;}}
+    .k{border:1px solid var(--bd);border-radius:12px;padding:12px;background:#0b1527;}
+    .k .t{font-size:12px;color:var(--mut);}
+    .k .v{font-size:18px;margin-top:4px;}
+    .ok{color:var(--ok);} .bad{color:var(--bad);}
+    .warn{color:#ffd166;}
+    .sectionTitle{font-size:12px;color:var(--mut);margin:2px 0 0 2px;}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>MT5 外汇止盈/止损/手数计算器（实时现价=入场价）</h1>
+
+  <div class="grid">
+    <!-- 左：输入区 -->
+    <div class="card">
+
+      <!-- 顶部：联网现价 + 刷新 -->
+      <div class="inline" style="justify-content:space-between;">
+        <div class="pill">
+          <span>现价</span>
+          <b id="priceText">--</b>
+          <span class="small" id="pairText">--</span>
+        </div>
+        <div class="inline">
+          <button class="btn" id="btnRefresh">刷新</button>
+          <button class="btn" id="btnAuto">自动刷新：开</button>
+        </div>
+      </div>
+
+      <!-- 1) 交易对 -->
+      <div class="row">
+        <div>
+          <label>交易对</label>
+          <select id="symbol">
+            <option value="EURUSD" selected>EURUSD</option>
+            <option value="GBPUSD">GBPUSD</option>
+            <option value="AUDUSD">AUDUSD</option>
+            <option value="NZDUSD">NZDUSD</option>
+            <option value="USDCAD">USDCAD</option>
+            <option value="USDCHF">USDCHF</option>
+            <option value="USDJPY">USDJPY</option>
+            <option value="EURJPY">EURJPY</option>
+            <option value="EURGBP">EURGBP</option>
+            <option value="CUSTOM">自定义（手动输入现价）</option>
+          </select>
+        </div>
+        <div>
+          <label>手动输入现价（优先）</label>
+          <input id="manualPrice" type="number" step="0.00001" placeholder="不填则用联网现价">
+          <div class="small">自定义交易对必须手动填现价。</div>
+        </div>
+      </div>
+
+      <!-- 2) 方向 / 账户币种 -->
+      <div class="row">
+        <div>
+          <label>方向</label>
+          <select id="side">
+            <option value="LONG">做多（Buy）</option>
+            <option value="SHORT">做空（Sell）</option>
+          </select>
+        </div>
+        <div>
+          <label>账户币种</label>
+          <select id="acct">
+            <option value="USD" selected>USD</option>
+            <option value="EUR">EUR</option>
+            <option value="JPY">JPY</option>
+            <option value="GBP">GBP</option>
+            <option value="AUD">AUD</option>
+            <option value="CAD">CAD</option>
+            <option value="CHF">CHF</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 3) 手数 / 合约数量 -->
+      <div class="row">
+        <div>
+          <label>手数（Lots）</label>
+          <input id="lots" type="number" step="0.01" min="0" value="0.20">
+        </div>
+        <div>
+          <label>每 1 手合约数量（units per lot）</label>
+          <input id="contract" type="number" step="1" min="1" value="100000">
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <!-- 4) 左：止盈  右：止损 -->
+      <div class="row">
+        <div>
+          <div class="sectionTitle">止盈在这边计算</div>
+          <div style="margin-top:6px;">
+            <label>止盈价（TP Price）</label>
+            <input id="tpPrice" type="number" step="0.00001" placeholder="例如 1.09000">
+          </div>
+          <div style="margin-top:10px;">
+            <label>目标盈利金额（Target Profit）</label>
+            <input id="tpMoney" type="number" step="0.01" placeholder="例如 50">
+          </div>
+        </div>
+
+        <div>
+          <div class="sectionTitle">止损在这边计算</div>
+          <div style="margin-top:6px;">
+            <label>止损价（SL Price）</label>
+            <input id="slPrice" type="number" step="0.00001" placeholder="例如 1.08000">
+          </div>
+          <div style="margin-top:10px;">
+            <label>最大亏损金额（Max Loss）</label>
+            <input id="slMoney" type="number" step="0.01" placeholder="例如 30">
+          </div>
+
+          <div style="margin-top:10px;">
+            <button class="btn" id="btnMaxLots" style="width:100%;">计算最大手数并写入“手数”</button>
+            <div class="small warn" id="maxLotsHint" style="margin-top:6px;"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 右：总结区 -->
+    <div class="card">
+      <div class="sectionTitle">总结</div>
+
+      <div class="kpi">
+        <div class="k">
+          <div class="t">预计盈利（账户币种）</div>
+          <div class="v ok" id="kProfit">--</div>
+          <div class="small" id="kProfitSub">--</div>
+        </div>
+        <div class="k">
+          <div class="t">预计亏损（账户币种）</div>
+          <div class="v bad" id="kLoss">--</div>
+          <div class="small" id="kLossSub">--</div>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+      <div class="small" id="status">状态：--</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const el = (id) => document.getElementById(id);
+
+  const symbolEl = el('symbol');
+  const sideEl = el('side');
+  const acctEl = el('acct');
+  const lotsEl = el('lots');
+  const contractEl = el('contract');
+
+  const tpPriceEl = el('tpPrice');
+  const tpMoneyEl = el('tpMoney');
+  const slPriceEl = el('slPrice');
+  const slMoneyEl = el('slMoney');
+
+  const priceText = el('priceText');
+  const pairText = el('pairText');
+  const statusEl = el('status');
+  const manualPriceEl = el('manualPrice');
+
+  const kProfit = el('kProfit');
+  const kProfitSub = el('kProfitSub');
+  const kLoss = el('kLoss');
+  const kLossSub = el('kLossSub');
+
+  const btnRefresh = el('btnRefresh');
+  const btnAuto = el('btnAuto');
+  const btnMaxLots = el('btnMaxLots');
+  const maxLotsHint = el('maxLotsHint');
+
+  let lastPrice = null;
+  let autoOn = true;
+  let timer = null;
+
+  let lock = false;
+
+  function parsePairFromSymbol(sym) {
+    if (sym === 'CUSTOM') return { base: null, quote: null, symText: 'CUSTOM' };
+    const s = sym.toUpperCase().trim();
+    if (s.length === 6) return { base: s.slice(0,3), quote: s.slice(3,6), symText: `${s.slice(0,3)}/${s.slice(3,6)}` };
+    return { base:'EUR', quote:'USD', symText:'EUR/USD' };
+  }
+
+  async function fetchRate(from, to) {
+    if (!from || !to) throw new Error('Missing currency');
+    if (from === to) return 1;
+    const url = `https://api.frankfurter.app/latest?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const r = data && data.rates && data.rates[to];
+    if (!r || typeof r !== 'number') throw new Error('No rate');
+    return r;
+  }
+
+  async function fetchCurrentPrice(pair) {
+    if (!pair.base || !pair.quote) throw new Error('CUSTOM requires manual price');
+    return await fetchRate(pair.base, pair.quote);
+  }
+
+  function getEntryPrice() {
+    const m = Number(manualPriceEl.value);
+    if (Number.isFinite(m) && m > 0) return m;
+    return lastPrice;
+  }
+
+  function units() {
+    const L = Number(lotsEl.value);
+    const C = Number(contractEl.value);
+    if (!Number.isFinite(L) || !Number.isFinite(C) || L <= 0 || C <= 0) return null;
+    return L * C;
+  }
+
+  function fmt(n, dp=2) {
+    if (!Number.isFinite(n)) return '--';
+    return n.toLocaleString(undefined, { maximumFractionDigits: dp, minimumFractionDigits: dp });
+  }
+
+  function fmtPrice(n) {
+    if (!Number.isFinite(n)) return '--';
+    const dp = n >= 20 ? 3 : 5;
+    return n.toFixed(dp);
+  }
+
+  async function quoteToAccountRate(pair) {
+    const acct = acctEl.value.toUpperCase();
+
+    // CUSTOM：没有 quote 币种，直接当作账户币种（只做数值计算，不做换算）
+    if (!pair.quote) return 1;
+
+    const quote = pair.quote.toUpperCase();
+    return await fetchRate(quote, acct);
+  }
+
+  async function calcPnLAccount(exitPrice, entryPrice, pair) {
+    const U = units();
+    if (!U) return null;
+
+    const side = sideEl.value;
+    const diff = (side === 'LONG') ? (exitPrice - entryPrice) : (entryPrice - exitPrice);
+    const pnlQuote = diff * U;
+
+    const q2a = await quoteToAccountRate(pair);
+    return { pnlAcct: pnlQuote * q2a, pnlQuote, q2a };
+  }
+
+  async function priceFromMoney(moneyAcct, entryPrice, pair, isTP) {
+    const U = units();
+    if (!U) return null;
+
+    const side = sideEl.value;
+    const q2a = await quoteToAccountRate(pair);
+    const moneyQuote = moneyAcct / q2a;
+
+    const diff = moneyQuote / U;
+
+    let exit;
+    if (isTP) {
+      exit = (side === 'LONG') ? (entryPrice + diff) : (entryPrice - diff);
+    } else {
+      exit = (side === 'LONG') ? (entryPrice - diff) : (entryPrice + diff);
+    }
+    return { exitPrice: exit, moneyQuote, q2a };
+  }
+
+  async function maxLotsFromSL(slPrice, lossAcct, entryPrice, pair) {
+    const C = Number(contractEl.value);
+    if (!Number.isFinite(C) || C <= 0) return null;
+
+    const side = sideEl.value;
+    const diff = (side === 'LONG') ? (entryPrice - slPrice) : (slPrice - entryPrice);
+    if (!Number.isFinite(diff) || diff <= 0) return { lots: 0, reason: '止损价方向不对（diff<=0）' };
+
+    const q2a = await quoteToAccountRate(pair);
+    const unitsMax = lossAcct / (diff * q2a);
+    const lotsMax = unitsMax / C;
+    return { lots: lotsMax, diff, q2a };
+  }
+
+  function setStatus(msg) {
+    statusEl.textContent = `状态：${msg}`;
+  }
+
+  async function refreshPrice() {
+    const pair = parsePairFromSymbol(symbolEl.value);
+    pairText.textContent = pair.symText;
+
+    if (symbolEl.value === 'CUSTOM') {
+      setStatus('自定义交易对：请手动输入现价');
+      // 不去联网抓
+      await recomputeAll();
+      return;
+    }
+
+    try {
+      const p = await fetchCurrentPrice(pair);
+      lastPrice = p;
+      priceText.textContent = fmtPrice(p);
+      setStatus(`已联网更新现价（${pair.symText}）`);
+    } catch (e) {
+      if (lastPrice == null) priceText.textContent = '--';
+      setStatus(`无法联网抓取现价：${String(e.message || e)}（可手动输入现价）`);
+    }
+
+    await recomputeAll();
+  }
+
+  async function recomputeAll() {
+    if (lock) return;
+    lock = true;
+
+    const pair = parsePairFromSymbol(symbolEl.value);
+    const entry = getEntryPrice();
+
+    if (Number.isFinite(entry) && entry > 0) {
+      priceText.textContent = fmtPrice(entry);
+      pairText.textContent = pair.symText;
+    }
+
+    // TP price -> profit
+    const tpP = Number(tpPriceEl.value);
+    if (Number.isFinite(tpP) && tpP > 0 && Number.isFinite(entry) && entry > 0) {
+      try {
+        const r = await calcPnLAccount(tpP, entry, pair);
+        if (r) {
+          kProfit.textContent = `${fmt(r.pnlAcct, 2)} ${acctEl.value}`;
+          kProfitSub.textContent = pair.quote ? `PnL=${fmt(r.pnlQuote, 2)} ${pair.quote}` : `PnL=${fmt(r.pnlQuote, 2)}`;
+          if (document.activeElement !== tpMoneyEl) tpMoneyEl.value = (Number.isFinite(r.pnlAcct) ? r.pnlAcct.toFixed(2) : '');
+        }
+      } catch {}
+    } else {
+      kProfit.textContent = '--';
+      kProfitSub.textContent = '--';
+    }
+
+    // SL price -> loss
+    const slP = Number(slPriceEl.value);
+    if (Number.isFinite(slP) && slP > 0 && Number.isFinite(entry) && entry > 0) {
+      try {
+        const r = await calcPnLAccount(slP, entry, pair);
+        if (r) {
+          const loss = Math.abs(r.pnlAcct);
+          kLoss.textContent = `${fmt(loss, 2)} ${acctEl.value}`;
+          kLossSub.textContent = pair.quote ? `PnL=${fmt(r.pnlQuote, 2)} ${pair.quote}` : `PnL=${fmt(r.pnlQuote, 2)}`;
+          if (document.activeElement !== slMoneyEl) slMoneyEl.value = (Number.isFinite(loss) ? loss.toFixed(2) : '');
+        }
+      } catch {}
+    } else {
+      kLoss.textContent = '--';
+      kLossSub.textContent = '--';
+    }
+
+    lock = false;
+  }
+
+  async function onTpMoneyInput() {
+    if (lock) return;
+    const pair = parsePairFromSymbol(symbolEl.value);
+    const entry = getEntryPrice();
+    const money = Number(tpMoneyEl.value);
+    if (!Number.isFinite(entry) || entry <= 0 || !Number.isFinite(money) || money <= 0) return;
+
+    lock = true;
+    try {
+      const r = await priceFromMoney(money, entry, pair, true);
+      if (r && Number.isFinite(r.exitPrice)) tpPriceEl.value = r.exitPrice;
+    } catch {}
+    lock = false;
+    await recomputeAll();
+  }
+
+  async function onSlMoneyInput() {
+    if (lock) return;
+    const pair = parsePairFromSymbol(symbolEl.value);
+    const entry = getEntryPrice();
+    const money = Number(slMoneyEl.value);
+    if (!Number.isFinite(entry) || entry <= 0 || !Number.isFinite(money) || money <= 0) return;
+
+    lock = true;
+    try {
+      const r = await priceFromMoney(money, entry, pair, false);
+      if (r && Number.isFinite(r.exitPrice)) slPriceEl.value = r.exitPrice;
+    } catch {}
+    lock = false;
+    await recomputeAll();
+  }
+
+  async function onMaxLots() {
+    maxLotsHint.textContent = '';
+    const pair = parsePairFromSymbol(symbolEl.value);
+    const entry = getEntryPrice();
+    const slP = Number(slPriceEl.value);
+    const loss = Number(slMoneyEl.value);
+
+    if (!Number.isFinite(entry) || entry <= 0) { maxLotsHint.textContent = '需要现价/入场价'; return; }
+    if (!Number.isFinite(slP) || slP <= 0) { maxLotsHint.textContent = '需要止损价'; return; }
+    if (!Number.isFinite(loss) || loss <= 0) { maxLotsHint.textContent = '需要最大亏损金额'; return; }
+
+    try {
+      const r = await maxLotsFromSL(slP, loss, entry, pair);
+      if (!r) return;
+      if (r.reason) { maxLotsHint.textContent = r.reason; return; }
+      if (!Number.isFinite(r.lots) || r.lots <= 0) { maxLotsHint.textContent = '计算结果<=0，请检查方向/止损价'; return; }
+
+      lotsEl.value = r.lots.toFixed(2);
+      maxLotsHint.textContent = `最大Lots≈${r.lots.toFixed(2)}`;
+      await recomputeAll();
+    } catch (e) {
+      maxLotsHint.textContent = `计算失败：${String(e.message || e)}`;
+    }
+  }
+
+  function setAuto(on) {
+    autoOn = on;
+    btnAuto.textContent = `自动刷新：${on ? '开' : '关'}`;
+    if (timer) { clearInterval(timer); timer = null; }
+    if (on) timer = setInterval(refreshPrice, 5000);
+  }
+
+  // 绑定
+  btnRefresh.addEventListener('click', refreshPrice);
+  btnAuto.addEventListener('click', () => setAuto(!autoOn));
+  btnMaxLots.addEventListener('click', onMaxLots);
+
+  symbolEl.addEventListener('change', refreshPrice);
+
+  [sideEl, acctEl, lotsEl, contractEl, manualPriceEl, tpPriceEl, slPriceEl].forEach(x => {
+    x.addEventListener('input', recomputeAll);
+    x.addEventListener('change', recomputeAll);
+  });
+
+  tpMoneyEl.addEventListener('input', onTpMoneyInput);
+  slMoneyEl.addEventListener('input', onSlMoneyInput);
+
+  // 初始化
+  setAuto(true);
+  refreshPrice();
+})();
+</script>
+</body>
+</html>
